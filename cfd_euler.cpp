@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <algorithm>
 #include <sstream>
+#include <chrono>
 
 
 using namespace std;
@@ -78,7 +79,25 @@ int main(){
     // Boolean mask for solid cells
     bool* solid = (bool*)malloc(total_size * sizeof(bool));
 
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+                            
+
+    /*#pragma omp target data map(rho[0:total_size]) map(rhou[0:total_size]) \
+                            map(rhov[0:total_size]) map(E[0:total_size]) \
+                            map(alloc:rho_new[0:total_size]) map(alloc:rhou_new[0:total_size]) \
+                            map(alloc:rhov_new[0:total_size]) map(alloc:E_new[0:total_size]) \
+                            map(solid[0:total_size])*/
+    
+    #pragma omp target data map(to:Nx) map(to:Ny) map(to:Lx) map(to:Ly) map(to:dx) map(to:dy) map(to:total_size) \
+                            map(from:rho[0:total_size]) map(from:rhou[0:total_size]) \
+                            map(from:rhov[0:total_size]) map(from:E[0:total_size]) \
+                            map(alloc:rho_new[0:total_size]) map(alloc:rhou_new[0:total_size]) \
+                            map(alloc:rhov_new[0:total_size]) map(alloc:E_new[0:total_size]) \
+                            map(from:solid[0:total_size])
+{
     // Remember to initialize if needed
+    #pragma omp target teams distribute parallel for
     for (int i = 0; i < total_size; i++) {
       rho[i] = 0.0;
       rhou[i] = 0.0;
@@ -104,6 +123,7 @@ int main(){
     const double E0 = p0/(gamma_val - 1.0) + 0.5*rho0*(u0*u0 + v0*v0);
 
     // ----- Initialize grid and obstacle mask -----
+    #pragma omp target teams distribute parallel for collapse(2)
     for (int i = 0; i < Nx+2; i++){
         for (int j = 0; j < Ny+2; j++){
             // Compute cell center coordinates
@@ -138,6 +158,7 @@ int main(){
     for (int n = 0; n < nSteps; n++){
         // --- Apply boundary conditions on ghost cells ---
         // Left boundary (inflow): fixed free-stream state
+        #pragma omp target teams distribute parallel for
         for (int j = 0; j < Ny+2; j++){
             rho[0*(Ny+2)+j] = rho0;
             rhou[0*(Ny+2)+j] = rho0*u0;
@@ -145,6 +166,7 @@ int main(){
             E[0*(Ny+2)+j] = E0;
         }
         // Right boundary (outflow): copy from the interior
+        #pragma omp target teams distribute parallel for
         for (int j = 0; j < Ny+2; j++){
             rho[(Nx+1)*(Ny+2)+j] = rho[Nx*(Ny+2)+j];
             rhou[(Nx+1)*(Ny+2)+j] = rhou[Nx*(Ny+2)+j];
@@ -152,6 +174,7 @@ int main(){
             E[(Nx+1)*(Ny+2)+j] = E[Nx*(Ny+2)+j];
         }
         // Bottom boundary: reflective
+        #pragma omp target teams distribute parallel for
         for (int i = 0; i < Nx+2; i++){
             rho[i*(Ny+2)+0] = rho[i*(Ny+2)+1];
             rhou[i*(Ny+2)+0] = rhou[i*(Ny+2)+1];
@@ -159,6 +182,7 @@ int main(){
             E[i*(Ny+2)+0] = E[i*(Ny+2)+1];
         }
         // Top boundary: reflective
+        #pragma omp target teams distribute parallel for
         for (int i = 0; i < Nx+2; i++){
             rho[i*(Ny+2)+(Ny+1)] = rho[i*(Ny+2)+Ny];
             rhou[i*(Ny+2)+(Ny+1)] = rhou[i*(Ny+2)+Ny];
@@ -167,6 +191,7 @@ int main(){
         }
 
         // --- Update interior cells using a Lax-Friedrichs scheme ---
+        #pragma omp target teams distribute parallel for collapse(2)
         for (int i = 1; i <= Nx; i++){
             for (int j = 1; j <= Ny; j++){
                 // If the cell is inside the solid obstacle, do not update it
@@ -215,6 +240,7 @@ int main(){
         }
 
         // Copy updated values back
+        #pragma omp target teams distribute parallel for collapse(2)
         for (int i = 1; i <= Nx; i++){
             for (int j = 1; j <= Ny; j++){
                 rho[i*(Ny+2)+j] = rho_new[i*(Ny+2)+j];
@@ -226,6 +252,7 @@ int main(){
 
         // Calculate total kinetic energy
         double total_kinetic = 0.0;
+        #pragma omp target teams distribute parallel for collapse(2) reduction(+:total_kinetic)
         for (int i = 1; i <= Nx; i++) {
             for (int j = 1; j <= Ny; j++) {
                 double u = rhou[i*(Ny+2)+j] / rho[i*(Ny+2)+j];
@@ -239,6 +266,11 @@ int main(){
             cout << "Step " << n << " completed, total kinetic energy: " << total_kinetic << endl;
         }
     }
+    }
+
+    auto t2 = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> ms_double = t2 - t1;
+    std::cout << ms_double.count() << "ms\n";
 
     return 0;
 }
