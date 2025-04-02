@@ -79,7 +79,6 @@ int main(){
     // Boolean mask for solid cells
     bool* solid = (bool*)malloc(total_size * sizeof(bool));
 
-    auto t1 = std::chrono::high_resolution_clock::now();
 
                             
 
@@ -153,6 +152,7 @@ int main(){
 
     // ----- Time stepping parameters -----
     const int nSteps = 2000;
+    auto t1 = std::chrono::high_resolution_clock::now();
 
     // ----- Main time-stepping loop -----
     for (int n = 0; n < nSteps; n++){
@@ -266,11 +266,11 @@ int main(){
             cout << "Step " << n << " completed, total kinetic energy: " << total_kinetic << endl;
         }
     }
-    }
-
     auto t2 = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> ms_double = t2 - t1;
     std::cout << ms_double.count() << "ms\n";
+    }
+
 
     return 0;
 }
